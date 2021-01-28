@@ -1,92 +1,70 @@
 #Requires -RunAsAdministrator
 Function Remove-UserProfile{
-   <#
+    <#
         .SYNOPSIS
-            Removes specified user profile from a local or remote machine using Invoke-Command
-
-        .PARAMETER
-            Profile
-            The profile you wish to remove from the workstation
+        Removes specified user profiles from a local or remote machine using CIM
         
-        .PARAMETER
-            Computername
-            The remote computer(s) you wish to remove profiles from
-
-        .EXAMPLE
-            Remove-UserProfile -Profile demouser1
+        .PARAMETER Profile
+        The name of the profile(s) you wish to remove from the computer(s)
+        
+        .PARAMETER Computername
+        The computer(s) you wish to remove profiles from; by default, it will remove profiles from the local computer
         
         .EXAMPLE
-            Remove-UserProfile -Profile demouser1,demouser2
+        PS C:\Remove-UserProfile -Profile demouser1
         
         .EXAMPLE
-            Remove-UserProfile -Computername wrkstn01 -Profile demouser1
+        PS C:\Remove-UserProfile -Profile demouser1,demouser2
+        
+        .EXAMPLE
+        PS C:\Remove-UserProfile -Computername wrkstn01 -Profile demouser1
 
         .EXAMPLE
-            Remove-UserProfile -Computername wrkstn01,wrkstn02 -Profile demouser1
-   #>
-   [cmdletBinding()]
+        PS C:\Remove-UserProfile -Computername wrkstn01,wrkstn02 -Profile demouser1
+    #>
+    [cmdletBinding(SupportsShouldProcess)]
     Param(
-        [parameter(Mandatory,Position=0)]
-        [Alias('Username','SAMAccountName')]
-        [string]
-        $Profile,
+         [parameter(Mandatory, Position = 0)]
+         [Alias('SAMAccountName')]
+         [string[]]$UserName,
+ 
+         [parameter(Position = 1)]
+         [string[]]$Computername = $env:COMPUTERNAME,
 
-        [parameter(Mandatory=$false,Position=1)]
-        [array]
-        $Computername
-        )
-    
-    Begin {}
-
-    Process {
-        #Work with a remote machine.
-        If($Computername)
-        {
-            Foreach($computer in $Computername)
-                {
-                    Try
-                        {
-                            Foreach($p in $Profile)
-                                {
-                                    Get-CimInstance -Computername $Computer win32_userprofile | 
-                                    Select-Object SID,LocalPath |                           
-                                    Where-Object { $_.localpath -match "$p" } -ErrorAction Stop |
-                                    Remove-CimInstance -ErrorAction Stop
-                                
-                                }#end foreach
-                        }#end try
-                    
-                    Catch
-                        {
-                            return $_.Exception.Message
-                        
-                        }#end catch
-                }#end foreach
-        }#end if
-        
-        #Working with the local machine.
-        Else
-            {
-            foreach($p in $Profile){
-                Try{
-                    Get-CimInstance win32_userprofile |
-                    Select-Object SID,LocalPath |
-                    Where-Object { $_.localpath -match "$p" } |
-                    Remove-CimInstance
-                }
-                
-                Catch{
-                
-                    return $_.Exception.Message
-                
-                }
-
-            }
-        
+         [parameter(Position = 2)]
+         [switch]$UseDCOM
+    )
+     
+    Begin {
+        if ($UseDCOM) {
+            $CIMSessionOption = New-CimSessionOption -Protocol Dcom 
         }
-    
+        else {
+            $CIMSessionOption = New-CimSessionOption -Protocol Wsman
+        }
     }
-
+ 
+    Process {
+        Foreach($computer in $Computername)  {
+            Foreach($User in $UserName) {
+                Try {
+                    if ($PSCmdlet.ShouldProcess(('Remove profile {0} from {1}' -f $user, $computer), '', '')) {
+                        $SessionSplat = @{
+                            ComputerName    = $computer
+                            ClassName       = 'win32_userprofile'
+                            Filter          = 'localpath LIKE "%\\{0}"' -f $UserName
+                            ErrorAction     = 'Stop'
+                            SessionOption   = $CIMSessionOption
+                        }
+                        Get-CimInstance @SessionSplat | 
+                        Remove-CimInstance -ErrorAction Stop
+                    }
+                }
+                Catch {
+                    return $_.Exception.Message
+                }     
+            }   
+        }
+    }
     End {}
-
-}
+ }
